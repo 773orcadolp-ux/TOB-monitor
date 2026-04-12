@@ -49,8 +49,7 @@ def run():
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
 
     if not edinet_api_key:
-        logger.error("EDINET_API_KEY が設定されていません。")
-        sys.exit(1)
+        logger.warning("EDINET_API_KEY が未設定のため条件2をスキップします")
 
     seen_ids = set(load_json(SEEN_IDS_FILE, []))
     all_new_detections = []
