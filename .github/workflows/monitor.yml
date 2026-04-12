@@ -1,0 +1,42 @@
+name: TOB予兆モニター
+
+on:
+  schedule:
+    - cron: '0,30 21-23 * * 1-5'
+    - cron: '0,30 0-12 * * 2-6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: TOB予兆モニターを実行
+        env:
+          EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
+          NTA_API_KEY: ${{ secrets.NTA_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python main.py
+
+      - name: 検知結果をコミット・プッシュ
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "TOB Monitor Bot"
+          git add results/detections.json results/seen_ids.json
+          git diff --staged --quiet || git commit -m "🔍 検知結果を更新 $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M JST')"
+          git push
