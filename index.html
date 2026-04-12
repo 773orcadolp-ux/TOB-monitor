@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOB予兆モニター</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0c10;
+      --surface: #111318;
+      --surface2: #181c24;
+      --border: #1e2330;
+      --text: #e2e8f0;
+      --text-muted: #64748b;
+      --text-dim: #334155;
+      --c1: #ff6b6b;
+      --c2: #ff9f1c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Noto Sans JP', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,212,170,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,170,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0;
+      position: sticky; top: 0;
+      background: rgba(10,12,16,0.95);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+    .header-inner { display: flex; align-items: center; justify-content: space-between; }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon { width: 30px; height: 30px; background: var(--c2); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+    .logo-text { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--c2); letter-spacing: 0.1em; }
+    .logo-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+    .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--c2); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+    .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 24px 0 20px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; position: relative; overflow: hidden; }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+    .stat-card.total::before { background: #4f9eff; }
+    .stat-card.c1::before { background: var(--c1); }
+    .stat-card.c2::before { background: var(--c2); }
+    .stat-card.c3::before { background: var(--c3); }
+    .stat-card.c4::before { background: var(--c4); }
+    .stat-label { font-size: 10px; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+    .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 600; }
+    .stat-card.total .stat-value { color: #4f9eff; }
+    .stat-card.c1 .stat-value { color: var(--c1); }
+    .stat-card.c2 .stat-value { color: var(--c2); }
+    .stat-card.c3 .stat-value { color: var(--c3); }
+    .stat-card.c4 .stat-value { color: var(--c4); }
+
+    .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-btn { padding: 5px 14px; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 11px; font-family: 'Noto Sans JP', sans-serif; cursor: pointer; transition: all .2s; }
+    .filter-btn:hover { border-color: var(--c2); color: var(--c2); }
+    .filter-btn.active { color: #000; font-weight: 500; }
+    .filter-btn.active.all { background: #4f9eff; border-color: #4f9eff; }
+    .filter-btn.active.c1 { background: var(--c1); border-color: var(--c1); }
+    .filter-btn.active.c2 { background: var(--c2); border-color: var(--c2); }
+    .filter-btn.active.c3 { background: var(--c3); border-color: var(--c3); }
+    .filter-btn.active.c4 { background: var(--c4); border-color: var(--c4); }
+
+    .section-title { font-size: 11px; color: var(--text-muted); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .count-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+    .detection-list { display: flex; flex-direction: column; gap: 10px; }
+    .detection-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; position: relative; overflow: hidden; animation: fadeIn .3s ease; }
+    .detection-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+    .detection-card.c1::before { background: var(--c1); }
+    .detection-card.c2::before { background: var(--c2); }
+    .detection-card.c3::before { background: var(--c3); }
+    .detection-card.c4::before { background: var(--c4); }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 10px; }
+    .card-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .badge { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; letter-spacing: .05em; font-family: 'JetBrains Mono', monospace; }
+    .badge.c1 { background: rgba(255,107,107,.15); color: var(--c1); border: 1px solid rgba(255,107,107,.3); }
+    .badge.c2 { background: rgba(0,212,170,.15); color: var(--c2); border: 1px solid rgba(0,212,170,.3); }
+    .badge.c3 { background: rgba(255,209,102,.15); color: var(--c3); border: 1px solid rgba(255,209,102,.3); }
+    .badge.c4 { background: rgba(255,159,28,.15); color: var(--c4); border: 1px solid rgba(255,159,28,.3); }
+    .card-company { font-size: 15px; font-weight: 500; }
+    .card-time { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+
+    .card-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+    .field { background: var(--surface2); border-radius: 6px; padding: 8px 12px; }
+    .field-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 3px; }
+    .field-value { font-size: 12px; color: var(--text); word-break: break-all; }
+    .field-link { font-size: 11px; color: #4f9eff; text-decoration: none; }
+    .field-link:hover { text-decoration: underline; }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: .4; }
+    .empty-text { font-size: 13px; line-height: 1.8; }
+
+    .refresh-btn { padding: 6px 14px; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-size: 11px; cursor: pointer; transition: all .2s; }
+    .refresh-btn:hover { border-color: var(--c2); color: var(--c2); }
+
+    footer { margin-top: 48px; padding: 20px 0; border-top: 1px solid var(--border); text-align: center; font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+    @media(max-width:600px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .card-fields { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">🔍</div>
+        <div>
+          <div class="logo-text">TOB MONITOR</div>
+          <div class="logo-sub">TOB予兆検知システム</div>
+        </div>
+      </div>
+      <div class="status">
+        <div class="pulse"></div>
+        <span id="last-updated">読み込み中...</span>
+        <button class="refresh-btn" onclick="loadDetections()">↻ 更新</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="container" style="padding-top:8px;padding-bottom:40px;">
+  <div class="stats-row" style="grid-template-columns:repeat(3,1fr)">
+    <div class="stat-card total"><div class="stat-label">総検知件数</div><div class="stat-value" id="stat-total">—</div></div>
+    <div class="stat-card c1"><div class="stat-label">条件1 新設法人</div><div class="stat-value" id="stat-c1">—</div></div>
+    <div class="stat-card c2"><div class="stat-label">条件2 遅延提出</div><div class="stat-value" id="stat-c2">—</div></div>
+  </div>
+
+  <div class="filter-bar">
+    <button class="filter-btn active all" onclick="setFilter('all',this,'all')">すべて</button>
+    <button class="filter-btn" onclick="setFilter('条件1',this,'c1')">条件1: 新設法人</button>
+    <button class="filter-btn" onclick="setFilter('条件2',this,'c2')">条件2: 遅延提出</button>
+  </div>
+
+  <div class="section-title">
+    <span>検知履歴</span>
+    <span class="count-badge" id="filtered-count">0件</span>
+  </div>
+
+  <div id="detection-list" class="detection-list">
+    <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-text">読み込み中...</div></div>
+  </div>
+</main>
+
+<footer>TOB MONITOR — 監視間隔: 30分（平日6〜22時）/ データソース: NTA法人番号公表サイト・EDINET</footer>
+
+<script>
+  let allDetections = [];
+  let currentFilter = 'all';
+  const CLS = {'条件1':'c1','条件2':'c2'};
+  const EMOJI = {'条件1':'🏢','条件2':'⏰'};
+
+  async function loadDetections() {
+    try {
+      const r = await fetch('results/detections.json?t=' + Date.now());
+      if (!r.ok) throw new Error();
+      allDetections = await r.json();
+      renderAll();
+      document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString('ja-JP');
+    } catch {
+      document.getElementById('detection-list').innerHTML =
+        '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">データの読み込みに失敗しました。<br>GitHub Actionsがまだ実行されていない可能性があります。</div></div>';
+    }
+  }
+
+  function setFilter(filter, btn, cls) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active','all','c1','c2'));
+    btn.classList.add('active', cls);
+    renderList();
+  }
+
+  function renderAll() {
+    document.getElementById('stat-total').textContent = allDetections.length;
+    document.getElementById('stat-c1').textContent = allDetections.filter(d=>d.condition==='条件1').length;
+    document.getElementById('stat-c2').textContent = allDetections.filter(d=>d.condition==='条件2').length;
+    renderList();
+  }
+
+  function renderList() {
+    const filtered = currentFilter === 'all' ? allDetections : allDetections.filter(d=>d.condition===currentFilter);
+    document.getElementById('filtered-count').textContent = filtered.length + '件';
+    if (!filtered.length) {
+      document.getElementById('detection-list').innerHTML =
+        '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">該当する検知データがありません。<br>監視は平日30分ごとに実行されています。</div></div>';
+      return;
+    }
+    document.getElementById('detection-list').innerHTML = filtered.map(renderCard).join('');
+  }
+
+  function renderCard(d) {
+    const cls = CLS[d.condition] || '';
+    const emoji = EMOJI[d.condition] || '🔍';
+    const title = d.condition === '条件1' ? d.company_name : d.filer_name;
+    let fields = '';
+
+    if (d.condition === '条件1') {
+      fields = `
+        <div class="field"><div class="field-label">検知条件</div><div class="field-value">${e(d.condition_detail)}</div></div>
+        <div class="field"><div class="field-label">一致した監視先</div><div class="field-value">${e(d.matched_watcher)}</div></div>
+        <div class="field"><div class="field-label">設立日</div><div class="field-value">${e(d.assignment_date)}</div></div>
+        <div class="field"><div class="field-label">法人番号</div><div class="field-value">${e(d.corporate_number)}</div></div>
+        <div class="field" style="grid-column:1/-1"><div class="field-label">住所</div><div class="field-value">${e(d.address)}</div></div>
+        <div class="field"><div class="field-label">ソース</div><div class="field-value"><a class="field-link" href="${e(d.source_url)}" target="_blank">法人番号公表サイト ↗</a></div></div>`;
+    } else {
+      fields = `
+        <div class="field"><div class="field-label">検知条件</div><div class="field-value">${e(d.condition_detail)}</div></div>
+        <div class="field"><div class="field-label">対象会社</div><div class="field-value">${e(d.subject_company)||'—'}</div></div>
+        <div class="field"><div class="field-label">保有基準日</div><div class="field-value">${e(d.base_date)}</div></div>
+        <div class="field"><div class="field-label">遅延営業日数</div><div class="field-value" style="color:var(--c2);font-weight:500">${e(String(d.business_days_late))}営業日遅延</div></div>
+        <div class="field"><div class="field-label">実際の提出日時</div><div class="field-value">${e(d.submit_datetime)}</div></div>
+        <div class="field"><div class="field-label">ソース</div><div class="field-value"><a class="field-link" href="${e(d.source_url)}" target="_blank">EDINETで確認 ↗</a></div></div>`;
+    }
+
+    return `<div class="detection-card ${cls}">
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="badge ${cls}">${e(d.condition)}</span>
+          <span class="card-company">${emoji} ${e(title)}</span>
+        </div>
+        <span class="card-time">${e(d.detected_at||'')}</span>
+      </div>
+      <div class="card-fields">${fields}</div>
+    </div>`;
+  }
+
+  function e(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  loadDetections();
+  setInterval(loadDetections, 5 * 60 * 1000);
+</script>
+</body>
+</html>
