@@ -113,7 +113,7 @@ def run_detection(api_key=None, lookback_days=1):
             time.sleep(0.5)
 
         for corp in pref_cache[pref_code]:
-            if address[:8] not in corp["address"]:
+            if address[:6] not in corp["address"]:
                 continue
             if not is_alpha_numeric_name(corp["company_name"]):
                 continue
