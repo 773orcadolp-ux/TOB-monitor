@@ -8,7 +8,7 @@ from pe_addresses import get_all_addresses
 
 logger = logging.getLogger(__name__)
 
-NTA_API_URL = "https://api.houjin-bangou.nta.go.jp/4/name"
+NTA_API_URL = "https://api.houjin-bangou.nta.go.jp/4/diff"
 
 EXCLUDED_SUFFIXES = [
     "株式会社", "合同会社", "合名会社", "合資会社", "有限会社",
@@ -57,18 +57,14 @@ def is_alpha_numeric_name(company_name):
     return bool(ALPHA_ONLY_PATTERN.match(core_name))
 
 
-def fetch_corporations_by_address(address, established_from, api_key):
+def fetch_new_corporations(established_from, api_key, prefecture_code):
     results = []
-    prefecture_code = get_prefecture_code(address)
     try:
         params = {
             "id": api_key,
-            "name": "a",
-            "mode": "2",
-            "target": "1",
+            "from": established_from,
+            "to": date.today().strftime("%Y-%m-%d"),
             "address": prefecture_code,
-            "from": established_from.replace("-", ""),
-            "to": date.today().strftime("%Y%m%d"),
             "kind": "03",
             "type": "02",
             "divide": "1",
@@ -82,8 +78,6 @@ def fetch_corporations_by_address(address, established_from, api_key):
                 corp.get("cityName", "") +
                 corp.get("streetNumber", "")
             )
-            if address[:10] not in corp_address:
-                continue
             results.append({
                 "corporate_number": corp.get("corporateNumber", ""),
                 "company_name": corp.get("name", ""),
@@ -91,7 +85,7 @@ def fetch_corporations_by_address(address, established_from, api_key):
                 "assignment_date": corp.get("assignmentDate", ""),
             })
     except Exception as e:
-        logger.error(f"NTA API error ({address}): {e}")
+        logger.error(f"NTA API error (prefecture={prefecture_code}): {e}")
     return results
 
 
@@ -104,15 +98,22 @@ def run_detection(api_key=None, lookback_days=1):
     established_from = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     detections = []
 
+    pref_cache = {}
     for entry in all_addresses:
         address = entry["address"]
         watcher_name = entry["name"]
-        logger.info(f"NTA検知: {watcher_name} / {address}")
+        pref_code = get_prefecture_code(address)
 
-        corps = fetch_corporations_by_address(address, established_from, api_key)
-        time.sleep(0.5)
+        if pref_code not in pref_cache:
+            logger.info(f"NTA取得: 都道府県コード={pref_code}")
+            pref_cache[pref_code] = fetch_new_corporations(
+                established_from, api_key, pref_code
+            )
+            time.sleep(0.5)
 
-        for corp in corps:
+        for corp in pref_cache[pref_code]:
+            if address[:8] not in corp["address"]:
+                continue
             if not is_alpha_numeric_name(corp["company_name"]):
                 continue
             detections.append({
