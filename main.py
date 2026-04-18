@@ -59,7 +59,7 @@ def run():
         from detectors.nta import run_detection as nta_detect
         mode = "API版" if nta_api_key else "スクレイピング版"
         logger.info(f"条件1（NTA {mode}）実行中...")
-        nta_results = nta_detect(api_key=nta_api_key or None, lookback_days=48)
+        nta_results = nta_detect(api_key=nta_api_key or None, lookback_days=1)
     except Exception as e:
         logger.error(f"NTA検知エラー: {e}")
         nta_results = []
