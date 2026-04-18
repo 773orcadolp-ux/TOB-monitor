@@ -50,5 +50,54 @@ def fetch_corporations_by_address(address, established_from):
             "selKind": "1",
             "txtSetupDateFrom": established_from.replace("-", "/"),
             "txtSetupDateTo": date.today().strftime("%Y/%m/%d"),
-            "btn​​​​​​​​​​​​​​​​
+            "btnSearch": "検索",
+        }
+        resp = requests.get(NTA_RESULT_URL, params=params, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        rows = soup.select("table.result-table tr")
+        for row in rows[1:]:
+            cols = row.select("td")
+            if len(cols) < 5:
+                continue
+            results.append({
+                "corporate_number": cols[0].get_text(strip=True),
+                "company_name": cols[1].get_text(strip=True),
+                "address": cols[2].get_text(strip=True),
+                "assignment_date": cols[3].get_text(strip=True),
+            })
+    except Exception as e:
+        logger.error(f"NTA fetch error ({address}): {e}")
+    return results
 
+
+def run_detection(api_key=None, lookback_days=1):
+    all_addresses = get_all_addresses()
+    established_from = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    detections = []
+
+    for entry in all_addresses:
+        address = entry["address"]
+        watcher_name = entry["name"]
+        logger.info(f"NTA検知: {watcher_name} / {address}")
+
+        corps = fetch_corporations_by_address(address, established_from)
+        time.sleep(1)
+
+        for corp in corps:
+            if not is_alpha_numeric_name(corp["company_name"]):
+                continue
+            detections.append({
+                "condition": "条件1",
+                "condition_detail": f"英字法人の新規設立（{watcher_name}の住所近辺）",
+                "company_name": corp["company_name"],
+                "corporate_number": corp["corporate_number"],
+                "address": corp["address"],
+                "assignment_date": corp["assignment_date"],
+                "matched_watcher": watcher_name,
+                "source_url": f"https://www.houjin-bangou.nta.go.jp/henkorireki-johoto.html?selHouzinNo={corp['corporate_number']}",
+            })
+            logger.info(f"[条件1 HIT] {corp['company_name']} / {watcher_name}")
+
+    logger.info(f"NTA検知完了: {len(detections)}件")
+    return detections
