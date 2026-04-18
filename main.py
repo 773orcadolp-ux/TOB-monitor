@@ -30,4 +30,6 @@ def load_json(path: Path, default):
 
 
 def save_json(path: Path, data):
-    path.parent.mkdir(parents=​​​​​​​​​​​​​​​​
+    path.parent.mkdir(parents=True, exist_ok=True)  # スペース4つ
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
