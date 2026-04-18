@@ -66,23 +66,24 @@ def fetch_new_corporations(established_from, api_key, prefecture_code):
             "to": date.today().strftime("%Y-%m-%d"),
             "address": prefecture_code,
             "kind": "03",
-            "type": "02",
+            "type": "12",
             "divide": "1",
         }
         resp = requests.get(NTA_API_URL, params=params, timeout=20)
         resp.raise_for_status()
-        data = resp.json()
-        for corp in data.get("corporation", []) or []:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(resp.content)
+        for corp in root.findall("corporation"):
             corp_address = (
-                corp.get("prefectureName", "") +
-                corp.get("cityName", "") +
-                corp.get("streetNumber", "")
+                (corp.findtext("prefectureName") or "") +
+                (corp.findtext("cityName") or "") +
+                (corp.findtext("streetNumber") or "")
             )
             results.append({
-                "corporate_number": corp.get("corporateNumber", ""),
-                "company_name": corp.get("name", ""),
+                "corporate_number": corp.findtext("corporateNumber") or "",
+                "company_name": corp.findtext("name") or "",
                 "address": corp_address,
-                "assignment_date": corp.get("assignmentDate", ""),
+                "assignment_date": corp.findtext("assignmentDate") or "",
             })
     except Exception as e:
         logger.error(f"NTA API error (prefecture={prefecture_code}): {e}")
