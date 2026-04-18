@@ -18,7 +18,7 @@ import logging
 import requests
 from datetime import date, timedelta, datetime
 
-logger = logging.getLogger(**name**)
+logger = logging.getLogger(__name__)
 
 EDINET_API_BASE = “https://disclosure.edinet-fsa.go.jp/api/v2”
 
