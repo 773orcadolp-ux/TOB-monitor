@@ -1,20 +1,14 @@
 import re
 import time
 import logging
-from datetime import date, timedelta
-
 import requests
-from bs4 import BeautifulSoup
+from datetime import date, timedelta
 
 from pe_addresses import get_all_addresses
 
 logger = logging.getLogger(__name__)
 
-NTA_RESULT_URL = "https://www.houjin-bangou.nta.go.jp/kekka-ichiran.html"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; TOBMonitor/1.0; research purpose)",
-    "Accept-Language": "ja,en;q=0.9",
-}
+NTA_API_URL = "https://api.houjin-bangou.nta.go.jp/4/name"
 
 EXCLUDED_SUFFIXES = [
     "株式会社", "合同会社", "合名会社", "合資会社", "有限会社",
@@ -41,37 +35,42 @@ def is_alpha_numeric_name(company_name):
     return bool(ALPHA_ONLY_PATTERN.match(core_name))
 
 
-def fetch_corporations_by_address(address, established_from):
+def fetch_corporations_by_address(address, established_from, api_key):
     results = []
     try:
         params = {
-            "selMode": "2",
-            "txtAddress": address,
-            "selKind": "1",
-            "txtSetupDateFrom": established_from.replace("-", "/"),
-            "txtSetupDateTo": date.today().strftime("%Y/%m/%d"),
-            "btnSearch": "検索",
+            "id": api_key,
+            "address": address,
+            "from": established_from.replace("-", ""),
+            "to": date.today().strftime("%Y%m%d"),
+            "kind": "01",
+            "type": "02",
+            "divide": "1",
         }
-        resp = requests.get(NTA_RESULT_URL, params=params, headers=HEADERS, timeout=20)
+        resp = requests.get(NTA_API_URL, params=params, timeout=20)
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        rows = soup.select("table.result-table tr")
-        for row in rows[1:]:
-            cols = row.select("td")
-            if len(cols) < 5:
-                continue
+        data = resp.json()
+        for corp in data.get("corporation", []) or []:
             results.append({
-                "corporate_number": cols[0].get_text(strip=True),
-                "company_name": cols[1].get_text(strip=True),
-                "address": cols[2].get_text(strip=True),
-                "assignment_date": cols[3].get_text(strip=True),
+                "corporate_number": corp.get("corporateNumber", ""),
+                "company_name": corp.get("name", ""),
+                "address": (
+                    corp.get("prefectureName", "") +
+                    corp.get("cityName", "") +
+                    corp.get("streetNumber", "")
+                ),
+                "assignment_date": corp.get("assignmentDate", ""),
             })
     except Exception as e:
-        logger.error(f"NTA fetch error ({address}): {e}")
+        logger.error(f"NTA API error ({address}): {e}")
     return results
 
 
 def run_detection(api_key=None, lookback_days=1):
+    if not api_key:
+        logger.warning("NTA_API_KEY が未設定のため条件1をスキップします")
+        return []
+
     all_addresses = get_all_addresses()
     established_from = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     detections = []
@@ -81,8 +80,8 @@ def run_detection(api_key=None, lookback_days=1):
         watcher_name = entry["name"]
         logger.info(f"NTA検知: {watcher_name} / {address}")
 
-        corps = fetch_corporations_by_address(address, established_from)
-        time.sleep(1)
+        corps = fetch_corporations_by_address(address, established_from, api_key)
+        time.sleep(0.5)
 
         for corp in corps:
             if not is_alpha_numeric_name(corp["company_name"]):
