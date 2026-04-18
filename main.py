@@ -1,104 +1,207 @@
-"""TOB予兆モニター メイン実行スクリプト"""
+“””
+EDINET 大量保有報告書 検知モジュール
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+検知対象:
+大量保有報告書（新規・変更・特例）の「遅延提出」
+= 保有基準日（periodStart）から法定期限（5営業日）を超えて提出されたもの
 
-import json
+過去分の遡り検知も可能（lookback_daysで調整）
+
+APIキー:
+Ocp-Apim-Subscription-Key ヘッダーで送信（クエリパラメータ不可）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+“””
+
+import re
+import time
 import logging
-import os
-import sys
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+import requests
+from datetime import date, timedelta, datetime
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(**name**)
 
-JST = timezone(timedelta(hours=9))
-RESULTS_FILE = Path("results/detections.json")
-SEEN_IDS_FILE = Path("results/seen_ids.json")
+EDINET_API_BASE = “https://disclosure.edinet-fsa.go.jp/api/v2”
 
+# 大量保有報告書の formCode一覧（ordinanceCode=43 が大量保有）
 
-def load_json(path: Path, default):
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return default
+# 新規・変更・特例をすべて対象とする
 
+TAIRYOU_HOYUU_FORM_CODES = {
+“43A000”: “大量保有報告書（新規）”,
+“43A001”: “大量保有報告書（変更）”,
+“43A002”: “大量保有報告書（特例）”,
+“43A003”: “大量保有報告書（特例変更）”,
+}
 
-def save_json(path: Path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# 法定期限: 保有基準日から5営業日以内
 
+LEGAL_DEADLINE_BUSINESS_DAYS = 5
 
-def make_detection_id(detection: dict) -> str:
-    if detection.get("condition") == "条件1":
-        return f"nta_{detection.get('corporate_number', '')}"
-    return f"edinet_{detection.get('doc_id', '')}_{detection.get('condition', '')}"
+# 遅延とみなす閾値（法定期限を1日でも超えたら検知）
 
+LATE_THRESHOLD_DAYS = LEGAL_DEADLINE_BUSINESS_DAYS
 
-def run():
-    logger.info(f"TOB予兆モニター 開始: {datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S JST')}")
+def count_business_days(start: date, end: date) -> int:
+“”“start（含まない）からend（含む）までの営業日数をカウント”””
+count = 0
+current = start + timedelta(days=1)
+while current <= end:
+if current.weekday() < 5:  # 月〜金
+count += 1
+current += timedelta(days=1)
+return count
 
-    edinet_api_key = os.environ.get("EDINET_API_KEY", "")
-    nta_api_key = os.environ.get("NTA_API_KEY", "")
-    slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+def parse_date(date_str: str) -> date | None:
+“”“YYYY-MM-DD / YYYYMMDD / YYYY/MM/DD 形式をdateに変換”””
+if not date_str:
+return None
+for fmt in (”%Y-%m-%d”, “%Y%m%d”, “%Y/%m/%d”):
+try:
+return datetime.strptime(date_str[:10], fmt).date()
+except ValueError:
+continue
+return None
 
-    if not edinet_api_key:
-        logger.warning("EDINET_API_KEY が未設定のため条件2をスキップします")
+def extract_base_date_from_description(doc_description: str) -> date | None:
+“””
+docDescriptionから保有基準日を推定する。
+例: “大量保有報告書－保有割合5%超（2024年03月15日現在）”
+→ 2024-03-15
+periodStartが空の場合のフォールバック。
+“””
+if not doc_description:
+return None
+# 「YYYY年MM月DD日」形式を探す
+m = re.search(r”(\d{4})年(\d{1,2})月(\d{1,2})日”, doc_description)
+if m:
+try:
+return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+except ValueError:
+pass
+# 「YYYY-MM-DD」形式を探す
+m = re.search(r”(\d{4}-\d{2}-\d{2})”, doc_description)
+if m:
+return parse_date(m.group(1))
+return None
 
-    seen_ids = set(load_json(SEEN_IDS_FILE, []))
-    all_new_detections = []
+def fetch_edinet_documents(target_date: str, api_key: str) -> list:
+“””
+EDINET書類一覧APIを叩いて指定日の書類一覧を返す。
+APIキーは Ocp-Apim-Subscription-Key ヘッダーで送信。
+“””
+headers = {}
+if api_key:
+headers[“Ocp-Apim-Subscription-Key”] = api_key
 
-    # 条件1: NTA
-    try:
-        from detectors.nta import run_detection as nta_detect
-        mode = "API版" if nta_api_key else "スクレイピング版"
-        logger.info(f"条件1（NTA {mode}）実行中...")
-        nta_results = nta_detect(api_key=nta_api_key or None, lookback_days=1)
-    except Exception as e:
-        logger.error(f"NTA検知エラー: {e}")
-        nta_results = []
+```
+try:
+    resp = requests.get(
+        f"{EDINET_API_BASE}/documents.json",
+        params={"date": target_date, "type": 2},
+        headers=headers,
+        timeout=30,
+    )
+    if resp.status_code == 401:
+        logger.error("EDINET APIキーが無効または未設定です（401）")
+        return []
+    if resp.status_code != 200:
+        logger.warning(f"EDINET API {target_date}: status={resp.status_code}")
+        return []
+    return resp.json().get("results", []) or []
+except Exception as e:
+    logger.error(f"EDINET API エラー ({target_date}): {e}")
+    return []
+```
 
-    # 条件2: EDINET（遅延提出）
-    try:
-        from detectors.edinet import run_detection as edinet_detect
-        logger.info("条件2（EDINET 遅延提出）実行中...")
-        edinet_results = edinet_detect(api_key=edinet_api_key, lookback_days=1)
-    except Exception as e:
-        logger.error(f"EDINET検知エラー: {e}")
-        edinet_results = []
+def run_detection(api_key: str, lookback_days: int = 1) -> list:
+“””
+大量保有報告書の遅延提出を検知する。
 
-    # 新規のみ抽出
-    for detection in nta_results + edinet_results:
-        det_id = make_detection_id(detection)
-        if det_id not in seen_ids:
-            detection["detected_at"] = datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
-            detection["id"] = det_id
-            all_new_detections.append(detection)
-            seen_ids.add(det_id)
+```
+Parameters
+----------
+api_key : str
+    EDINET APIキー（アプリケーションID）
+lookback_days : int
+    何日前まで遡るか。
+    - 通常運用: 1〜2
+    - 初回・過去分洗い出し: 30〜90（GitHub Actionsの実行時間に注意）
 
-    logger.info(f"新規検知: {len(all_new_detections)}件")
+Returns
+-------
+list of dict  検知結果
+"""
+if not api_key:
+    logger.warning("EDINET_API_KEY が未設定のため条件2をスキップします")
+    return []
 
-    if all_new_detections:
-        existing = load_json(RESULTS_FILE, [])
-        updated = (all_new_detections + existing)[:500]
-        save_json(RESULTS_FILE, updated)
+detections = []
+# 当日 + lookback_days日前まで
+target_dates = [
+    (date.today() - timedelta(days=i)).strftime("%Y-%m-%d")
+    for i in range(lookback_days + 1)
+]
 
-        if slack_webhook_url:
-            from notifier import send_slack_notification
-            send_slack_notification(all_new_detections, slack_webhook_url)
-    else:
-        if not RESULTS_FILE.exists():
-            save_json(RESULTS_FILE, [])
+for target_date in target_dates:
+    logger.info(f"EDINET検知: {target_date} の書類を取得中")
+    docs = fetch_edinet_documents(target_date, api_key)
+    time.sleep(1)  # レート制限対策
 
-    save_json(SEEN_IDS_FILE, list(seen_ids)[-10000:])
-    logger.info(f"TOB予兆モニター 完了: {datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S JST')}")
+    for doc in docs:
+        form_code = doc.get("formCode", "")
+        if form_code not in TAIRYOU_HOYUU_FORM_CODES:
+            continue
 
+        doc_id          = doc.get("docID", "")
+        filer_name      = doc.get("filerName", "")
+        subject_company = doc.get("issuerName", "") or doc.get("subjectEdinetCode", "")
+        submit_datetime = doc.get("submitDateTime", "")
+        period_start    = doc.get("periodStart", "")
+        doc_description = doc.get("docDescription", "")
 
-if __name__ == "__main__":
-    run()
+        submit_date = parse_date(submit_datetime)
+        if not submit_date:
+            continue
+
+        # 保有基準日を取得（periodStart → docDescriptionの順でフォールバック）
+        base_date = parse_date(period_start)
+        if not base_date:
+            base_date = extract_base_date_from_description(doc_description)
+        if not base_date:
+            # 基準日が特定できなければスキップせず、提出日ベースで記録
+            logger.debug(f"基準日不明: {doc_id} / {filer_name} → 遅延判定スキップ")
+            continue
+
+        business_days = count_business_days(base_date, submit_date)
+
+        if business_days > LATE_THRESHOLD_DAYS:
+            detection = {
+                "condition": "条件2",
+                "condition_detail": (
+                    f"大量保有報告書の遅延提出 — "
+                    f"{TAIRYOU_HOYUU_FORM_CODES[form_code]}、"
+                    f"基準日から {business_days} 営業日後に提出"
+                    f"（法定期限: {LEGAL_DEADLINE_BUSINESS_DAYS}営業日以内）"
+                ),
+                "doc_id":            doc_id,
+                "form_code":         form_code,
+                "form_name":         TAIRYOU_HOYUU_FORM_CODES[form_code],
+                "filer_name":        filer_name,
+                "subject_company":   subject_company,
+                "base_date":         str(base_date),
+                "submit_datetime":   submit_datetime,
+                "business_days_late": business_days,
+                "source_url": (
+                    f"https://disclosure2.edinet-fsa.go.jp/WZEK0040.aspx?{doc_id}"
+                ),
+            }
+            detections.append(detection)
+            logger.info(
+                f"[条件2 HIT] {filer_name} → {subject_company or '不明'} / "
+                f"基準日:{base_date} 提出:{submit_datetime[:10]} "
+                f"({business_days}営業日遅延)"
+            )
+
+logger.info(f"EDINET検知完了: {len(detections)}件")
+return detections
+```
