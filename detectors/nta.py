@@ -8,7 +8,14 @@ from pe_addresses import get_all_addresses
 
 logger = logging.getLogger(__name__)
 
-NTA_API_URL = "https://api.houjin-bangou.nta.go.jp/4/diff"
+NTA_API_URL = "https://api.houjin-bangou.nta.go.jp/4/name"
+
+# 検索する英字パターン（TOBのSPC/BidCoでよく使われる）
+SEARCH_NAMES = [
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+    "U", "V", "W", "X", "Y", "Z",
+]
 
 EXCLUDED_SUFFIXES = [
     "株式会社", "合同会社", "合名会社", "合資会社", "有限会社",
@@ -17,8 +24,6 @@ EXCLUDED_SUFFIXES = [
     "特別目的会社", "LLC", "Inc", "Corp", "Ltd", "GK",
     "投資事業有限責任組合", "有限責任事業組合",
 ]
-
-ALPHA_ONLY_PATTERN = re.compile(r'^[A-Za-z0-9\s\-\.]+$')
 
 PREFECTURE_CODE_MAP = {
     "北海道": "01", "青森県": "02", "岩手県": "03", "宮城県": "04",
@@ -47,46 +52,48 @@ def strip_legal_suffix(name):
     stripped = name
     for suffix in EXCLUDED_SUFFIXES:
         stripped = stripped.replace(suffix, "")
+    stripped = re.sub(r'[\s\u3000]+', '', stripped)
     return stripped.strip()
 
 
-def is_alpha_numeric_name(company_name):
-    core_name = strip_legal_suffix(company_name)
-    if not core_name:
-        return False
-    return bool(ALPHA_ONLY_PATTERN.match(core_name))
+def is_alpha_numeric_only(name):
+    core = strip_legal_suffix(name)
+    return bool(core) and bool(re.fullmatch(r'[A-Za-z0-9]+', core))
 
 
-def fetch_new_corporations(established_from, api_key, prefecture_code):
+def fetch_corps_by_name(search_char, pref_code, from_date, api_key):
     results = []
     try:
         params = {
             "id": api_key,
-            "from": established_from,
-            "to": date.today().strftime("%Y-%m-%d"),
-            "address": prefecture_code,
+            "name": search_char,
+            "mode": "2",
+            "target": "3",
+            "address": pref_code,
             "kind": "03",
+            "from": from_date,
+            "to": date.today().strftime("%Y-%m-%d"),
             "type": "12",
             "divide": "1",
         }
         resp = requests.get(NTA_API_URL, params=params, timeout=20)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            return []
         import xml.etree.ElementTree as ET
         root = ET.fromstring(resp.content)
         for corp in root.findall("corporation"):
-            corp_address = (
-                (corp.findtext("prefectureName") or "") +
-                (corp.findtext("cityName") or "") +
-                (corp.findtext("streetNumber") or "")
-            )
             results.append({
                 "corporate_number": corp.findtext("corporateNumber") or "",
                 "company_name": corp.findtext("name") or "",
-                "address": corp_address,
+                "address": (
+                    (corp.findtext("prefectureName") or "") +
+                    (corp.findtext("cityName") or "") +
+                    (corp.findtext("streetNumber") or "")
+                ),
                 "assignment_date": corp.findtext("assignmentDate") or "",
             })
     except Exception as e:
-        logger.error(f"NTA API error (prefecture={prefecture_code}): {e}")
+        logger.error(f"NTA API error ({search_char}, pref={pref_code}): {e}")
     return results
 
 
@@ -96,28 +103,60 @@ def run_detection(api_key=None, lookback_days=1):
         return []
 
     all_addresses = get_all_addresses()
-    established_from = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    detections = []
+    from_date = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
-    pref_cache = {}
+    # 監視対象の住所リストを整理
+    watch_list = []
     for entry in all_addresses:
-        address = entry["address"]
-        watcher_name = entry["name"]
-        pref_code = get_prefecture_code(address)
+        watch_list.append({
+            "name": entry["name"],
+            "address": entry["address"],
+            "pref_code": get_prefecture_code(entry["address"]),
+        })
 
-        if pref_code not in pref_cache:
-            logger.info(f"NTA取得: 都道府県コード={pref_code}")
-            pref_cache[pref_code] = fetch_new_corporations(
-                established_from, api_key, pref_code
-            )
-            time.sleep(0.5)
+    # 都道府県ごとにユニーク化
+    pref_codes = list(set(w["pref_code"] for w in watch_list))
 
-        for corp in pref_cache[pref_code]:
-            core = strip_legal_suffix(corp["company_name"])
-            matched_addr = address[:6] in corp["address"]
-            matched_name = is_alpha_numeric_name(corp["company_name"])
-            if matched_addr or matched_name:
-                logger.info(f"[デバッグ] 名前:{corp['company_name']} コア:{core} 住所一致:{matched_addr} 英字一致:{matched_name} / {corp['address']}")
+    detections = []
+    seen_corp_nums = set()
+
+    for pref_code in pref_codes:
+        # その都道府県の監視住所リスト
+        pref_watches = [w for w in watch_list if w["pref_code"] == pref_code]
+
+        for search_char in SEARCH_NAMES:
+            corps = fetch_corps_by_name(search_char, pref_code, from_date, api_key)
+            time.sleep(0.3)
+
+            for corp in corps:
+                corp_num = corp["corporate_number"]
+                if corp_num in seen_corp_nums:
+                    continue
+                if not is_alpha_numeric_only(corp["company_name"]):
+                    continue
+
+                # 監視対象住所と一致するか確認
+                matched_watcher = None
+                for w in pref_watches:
+                    if w["address"] in corp["address"]:
+                        matched_watcher = w["name"]
+                        break
+
+                if not matched_watcher:
+                    continue
+
+                seen_corp_nums.add(corp_num)
+                detections.append({
+                    "condition": "条件1",
+                    "condition_detail": f"英字法人の新規設立（{matched_watcher}の住所近辺）",
+                    "company_name": corp["company_name"],
+                    "corporate_number": corp_num,
+                    "address": corp["address"],
+                    "assignment_date": corp["assignment_date"],
+                    "matched_watcher": matched_watcher,
+                    "source_url": f"https://www.houjin-bangou.nta.go.jp/henkorireki-johoto.html?selHouzinNo={corp_num}",
+                })
+                logger.info(f"[条件1 HIT] {corp['company_name']} / {matched_watcher}")
 
     logger.info(f"NTA検知完了: {len(detections)}件")
     return detections
