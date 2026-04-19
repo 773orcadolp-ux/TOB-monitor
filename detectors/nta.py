@@ -112,8 +112,8 @@ def run_detection(api_key=None, lookback_days=1):
             )
             time.sleep(0.5)
 
-for corp in pref_cache[pref_code]:
-    logger.info(f"取得法人: {corp['company_name']} / {corp['address']}")
+        for corp in pref_cache[pref_code]:
+            logger.info(f"取得法人: {corp['company_name']} / {corp['address']}")
 
     logger.info(f"NTA検知完了: {len(detections)}件")
     return detections
