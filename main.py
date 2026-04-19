@@ -54,15 +54,9 @@ def run():
     seen_ids = set(load_json(SEEN_IDS_FILE, []))
     all_new_detections = []
 
-    # 条件1: NTA
-    try:
-        from detectors.nta import run_detection as nta_detect
-        mode = "API版" if nta_api_key else "スクレイピング版"
-        logger.info(f"条件1（NTA {mode}）実行中...")
-        nta_results = nta_detect(api_key=nta_api_key or None, lookback_days=48)
-    except Exception as e:
-        logger.error(f"NTA検知エラー: {e}")
-        nta_results = []
+　　# 条件1: NTA（一時無効化）
+　　nta_results = []
+　　logger.info("条件1（NTA）は現在無効化中")
 
     # 条件2: EDINET（遅延提出）
     try:
