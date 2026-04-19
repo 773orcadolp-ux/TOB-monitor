@@ -113,7 +113,11 @@ def run_detection(api_key=None, lookback_days=1):
             time.sleep(0.5)
 
         for corp in pref_cache[pref_code]:
-            logger.info(f"[全件] {corp['company_name']} / {corp['address']}")
+            core = strip_legal_suffix(corp["company_name"])
+            matched_addr = address[:6] in corp["address"]
+            matched_name = is_alpha_numeric_name(corp["company_name"])
+            if matched_addr or matched_name:
+                logger.info(f"[デバッグ] 名前:{corp['company_name']} コア:{core} 住所一致:{matched_addr} 英字一致:{matched_name} / {corp['address']}")
 
     logger.info(f"NTA検知完了: {len(detections)}件")
     return detections
