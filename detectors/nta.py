@@ -70,8 +70,6 @@ def fetch_corps_by_name(search_char, pref_code, from_date, api_key):
             "target": "1",
             "address": pref_code,
             "kind": "03",
-            "from": from_date,
-            "to": date.today().strftime("%Y-%m-%d"),
             "type": "12",
             "divide": "1",
         }
@@ -82,6 +80,9 @@ def fetch_corps_by_name(search_char, pref_code, from_date, api_key):
         import xml.etree.ElementTree as ET
         root = ET.fromstring(resp.content)
         for corp in root.findall("corporation"):
+            assignment_date = corp.findtext("assignmentDate") or ""
+            if assignment_date < from_date.replace("-", ""):
+                continue
             results.append({
                 "corporate_number": corp.findtext("corporateNumber") or "",
                 "company_name": corp.findtext("name") or "",
@@ -90,7 +91,7 @@ def fetch_corps_by_name(search_char, pref_code, from_date, api_key):
                     (corp.findtext("cityName") or "") +
                     (corp.findtext("streetNumber") or "")
                 ),
-                "assignment_date": corp.findtext("assignmentDate") or "",
+                "assignment_date": assignment_date,
             })
     except Exception as e:
         logger.error(f"NTA API error ({search_char}, pref={pref_code}): {e}")
