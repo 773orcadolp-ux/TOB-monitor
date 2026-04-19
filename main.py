@@ -45,7 +45,6 @@ def run():
     logger.info(f"TOB予兆モニター 開始: {datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S JST')}")
 
     edinet_api_key = os.environ.get("EDINET_API_KEY", "")
-    nta_api_key = os.environ.get("NTA_API_KEY", "")
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
 
     if not edinet_api_key:
@@ -54,16 +53,16 @@ def run():
     seen_ids = set(load_json(SEEN_IDS_FILE, []))
     all_new_detections = []
 
-    # 条件2: EDINET（遅延提出）
+    nta_results = []
+
     try:
         from detectors.edinet import run_detection as edinet_detect
-        logger.info("条件2（EDINET 遅延提出）実行中...")
+        logger.info("条件2 (EDINET 遅延提出) 実行中...")
         edinet_results = edinet_detect(api_key=edinet_api_key, lookback_days=48)
     except Exception as e:
         logger.error(f"EDINET検知エラー: {e}")
         edinet_results = []
 
-    # 新規のみ抽出
     for detection in nta_results + edinet_results:
         det_id = make_detection_id(detection)
         if det_id not in seen_ids:
