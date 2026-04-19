@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 NTA_API_URL = "https://api.houjin-bangou.nta.go.jp/4/name"
 
-# 検索する英字パターン（TOBのSPC/BidCoでよく使われる）
 SEARCH_NAMES = [
     "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
     "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
@@ -68,7 +67,7 @@ def fetch_corps_by_name(search_char, pref_code, from_date, api_key):
             "id": api_key,
             "name": search_char,
             "mode": "2",
-            "target": "3",
+            "target": "1",
             "address": pref_code,
             "kind": "03",
             "from": from_date,
@@ -78,6 +77,7 @@ def fetch_corps_by_name(search_char, pref_code, from_date, api_key):
         }
         resp = requests.get(NTA_API_URL, params=params, timeout=20)
         if resp.status_code != 200:
+            logger.warning(f"NTA API {search_char} pref={pref_code}: status={resp.status_code}")
             return []
         import xml.etree.ElementTree as ET
         root = ET.fromstring(resp.content)
@@ -105,7 +105,6 @@ def run_detection(api_key=None, lookback_days=1):
     all_addresses = get_all_addresses()
     from_date = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
-    # 監視対象の住所リストを整理
     watch_list = []
     for entry in all_addresses:
         watch_list.append({
@@ -114,17 +113,16 @@ def run_detection(api_key=None, lookback_days=1):
             "pref_code": get_prefecture_code(entry["address"]),
         })
 
-    # 都道府県ごとにユニーク化
     pref_codes = list(set(w["pref_code"] for w in watch_list))
 
     detections = []
     seen_corp_nums = set()
 
     for pref_code in pref_codes:
-        # その都道府県の監視住所リスト
         pref_watches = [w for w in watch_list if w["pref_code"] == pref_code]
 
         for search_char in SEARCH_NAMES:
+            logger.info(f"NTA検索: {search_char} / 都道府県={pref_code}")
             corps = fetch_corps_by_name(search_char, pref_code, from_date, api_key)
             time.sleep(0.3)
 
@@ -135,7 +133,6 @@ def run_detection(api_key=None, lookback_days=1):
                 if not is_alpha_numeric_only(corp["company_name"]):
                     continue
 
-                # 監視対象住所と一致するか確認
                 matched_watcher = None
                 for w in pref_watches:
                     if w["address"] in corp["address"]:
