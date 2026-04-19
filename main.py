@@ -54,10 +54,6 @@ def run():
     seen_ids = set(load_json(SEEN_IDS_FILE, []))
     all_new_detections = []
 
-　　# 条件1: NTA (一時無効化)
-　　nta_results = []
-　　logger.info("条件1（NTA）は現在無効化中")
-
     # 条件2: EDINET（遅延提出）
     try:
         from detectors.edinet import run_detection as edinet_detect
