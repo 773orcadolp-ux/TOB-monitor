@@ -113,19 +113,7 @@ def run_detection(api_key=None, lookback_days=1):
             time.sleep(0.5)
 
         for corp in pref_cache[pref_code]:
-            if not is_alpha_numeric_name(corp["company_name"]):
-                continue
-            detections.append({
-                "condition": "条件1",
-                "condition_detail": f"英字法人の新規設立（都道府県コード={pref_code}）",
-                "company_name": corp["company_name"],
-                "corporate_number": corp["corporate_number"],
-                "address": corp["address"],
-                "assignment_date": corp["assignment_date"],
-                "matched_watcher": watcher_name,
-                "source_url": f"https://www.houjin-bangou.nta.go.jp/henkorireki-johoto.html?selHouzinNo={corp['corporate_number']}",
-            })
-            logger.info(f"[条件1 HIT] {corp['company_name']} / {corp['address']}")
+            logger.info(f"[全件] {corp['company_name']} / {corp['address']}")
 
     logger.info(f"NTA検知完了: {len(detections)}件")
     return detections
