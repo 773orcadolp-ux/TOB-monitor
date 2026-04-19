@@ -98,51 +98,12 @@ def run_detection(api_key, lookback_days=1):
             form_code = doc.get("formCode", "")
             if form_code not in TAIRYOU_HOYUU_FORM_CODES:
                 continue
-
-            doc_id = doc.get("docID", "")
-            filer_name = doc.get("filerName", "")
-            subject_company = doc.get("issuerName", "") or doc.get("subjectEdinetCode", "")
-            submit_datetime = doc.get("submitDateTime", "")
-            period_start = doc.get("periodStart", "")
-            doc_description = doc.get("docDescription", "")
-
-            submit_date = parse_date(submit_datetime)
-            if not submit_date:
-                continue
-
-            base_date = parse_date(period_start)
-            if not base_date:
-                base_date = extract_base_date_from_description(doc_description)
-            if not base_date:
-                logger.debug(f"基準日不明: {doc_id} / {filer_name}")
-                continue
-
-            business_days = count_business_days(base_date, submit_date)
-
-            if business_days > LATE_THRESHOLD_DAYS:
-                detection = {
-                    "condition": "条件2",
-                    "condition_detail": (
-                        f"大量保有報告書の遅延提出 "
-                        f"{TAIRYOU_HOYUU_FORM_CODES[form_code]} "
-                        f"基準日から{business_days}営業日後に提出"
-                    ),
-                    "doc_id": doc_id,
-                    "form_code": form_code,
-                    "form_name": TAIRYOU_HOYUU_FORM_CODES[form_code],
-                    "filer_name": filer_name,
-                    "subject_company": subject_company,
-                    "base_date": str(base_date),
-                    "submit_datetime": submit_datetime,
-                    "business_days_late": business_days,
-                    "source_url": f"https://disclosure2.edinet-fsa.go.jp/WZEK0040.aspx?{doc_id}",
-                }
-                detections.append(detection)
-                logger.info(
-                    f"[条件2 HIT] {filer_name} / "
-                    f"基準日:{base_date} 提出:{submit_datetime[:10]} "
-                    f"({business_days}営業日遅延)"
-                )
+            logger.info(
+                f"formCode={form_code} "
+                f"filer={doc.get('filerName','')[:20]} "
+                f"periodStart={doc.get('periodStart','EMPTY')} "
+                f"submitDateTime={doc.get('submitDateTime','')}"
+            )
 
     logger.info(f"EDINET検知完了: {len(detections)}件")
     return detections
